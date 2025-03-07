@@ -1,0 +1,1296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Restaurant Inventory Assistant</title>
+    <style>
+        :root {
+            --primary-color: #1e40af;
+            --primary-light: #3b82f6;
+            --secondary-color: #f0f4f8;
+            --text-color: #1f2937;
+            --light-text: #6b7280;
+            --border-color: #e5e7eb;
+            --success-color: #10b981;
+            --error-color: #ef4444;
+            --warning-color: #f59e0b;
+            --dark-bg: #f3f4f6;
+            --voice-color: #7c3aed;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--dark-bg);
+            color: var(--text-color);
+            line-height: 1.6;
+        }
+
+        .app-container {
+            display: flex;
+            max-width: 1200px;
+            height: 100vh;
+            margin: 0 auto;
+            background-color: white;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .sidebar {
+            width: 280px;
+            background-color: var(--primary-color);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border-color);
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .sidebar-header h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .chat-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        .chat-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 15px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .chat-item:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .chat-item.active {
+            background-color: rgba(255, 255, 255, 0.2);
+            font-weight: 600;
+        }
+
+        .chat-icon {
+            margin-right: 10px;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .chat-title {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .chat-actions {
+            padding: 15px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        .chat-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 20px;
+            border-bottom: 1px solid var(--border-color);
+            background-color: white;
+        }
+
+        .chat-header h2 {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 10px;
+        }
+
+        .icon-button {
+            background: none;
+            border: none;
+            color: var(--text-color);
+            cursor: pointer;
+            padding: 5px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.2s;
+        }
+
+        .icon-button:hover {
+            background-color: var(--secondary-color);
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            background-color: var(--secondary-color);
+        }
+
+        .message {
+            margin-bottom: 20px;
+            max-width: 80%;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .message-bubble {
+            padding: 12px 16px;
+            border-radius: 18px;
+            position: relative;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+        }
+
+        .user-message {
+            margin-left: auto;
+        }
+
+        .user-message .message-bubble {
+            background-color: var(--primary-light);
+            color: white;
+            border-bottom-right-radius: 4px;
+        }
+
+        .assistant-message .message-bubble {
+            background-color: white;
+            border-bottom-left-radius: 4px;
+        }
+
+        .system-message {
+            margin: 0 auto;
+            max-width: 80%;
+            text-align: center;
+        }
+
+        .system-message .message-bubble {
+            background-color: rgba(0, 0, 0, 0.05);
+            color: var(--light-text);
+            font-style: italic;
+            display: inline-block;
+        }
+
+        .message-time {
+            font-size: 0.7rem;
+            color: var(--light-text);
+            margin-top: 5px;
+            opacity: 0.8;
+        }
+
+        .voice-indicator {
+            display: inline-flex;
+            align-items: center;
+            margin-left: 5px;
+            font-size: 0.7rem;
+            color: var(--voice-color);
+            background-color: rgba(124, 58, 237, 0.1);
+            padding: 2px 6px;
+            border-radius: 12px;
+        }
+
+        .meta-info {
+            font-size: 0.7rem;
+            color: var(--light-text);
+            margin-top: 5px;
+            text-align: right;
+        }
+
+        .input-area {
+            padding: 15px;
+            border-top: 1px solid var(--border-color);
+            background-color: white;
+        }
+
+        .input-container {
+            display: flex;
+            background-color: var(--secondary-color);
+            border-radius: 24px;
+            overflow: hidden;
+            padding: 0 5px 0 15px;
+        }
+
+        .input-field {
+            flex: 1;
+            border: none;
+            padding: 12px 0;
+            background: transparent;
+            font-size: 0.95rem;
+            resize: none;
+            max-height: 120px;
+            min-height: 24px;
+        }
+
+        .input-field:focus {
+            outline: none;
+        }
+
+        .input-actions {
+            display: flex;
+            align-items: center;
+        }
+
+        .send-button, .voice-button {
+            background: none;
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .send-button {
+            color: var(--primary-color);
+        }
+
+        .voice-button {
+            color: var(--voice-color);
+        }
+
+        .send-button:hover, .voice-button:hover {
+            background-color: rgba(0, 0, 0, 0.05);
+        }
+
+        .voice-button.listening {
+            animation: pulse 1.5s infinite;
+            background-color: rgba(124, 58, 237, 0.1);
+        }
+
+        @keyframes pulse {
+            0% { background-color: rgba(124, 58, 237, 0.1); }
+            50% { background-color: rgba(124, 58, 237, 0.3); }
+            100% { background-color: rgba(124, 58, 237, 0.1); }
+        }
+
+        .status-bar {
+            padding: 5px 15px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: var(--light-text);
+            background-color: white;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+
+        .status-dot.connected {
+            background-color: var(--success-color);
+        }
+
+        .status-dot.connecting {
+            background-color: var(--warning-color);
+        }
+
+        .status-dot.disconnected {
+            background-color: var(--error-color);
+        }
+
+        .btn {
+            background-color: var(--primary-light);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        .btn:hover {
+            background-color: var(--primary-color);
+        }
+
+        .btn-outline {
+            background-color: transparent;
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+        }
+
+        .btn-outline:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .settings-panel {
+            position: absolute;
+            top: 60px;
+            right: 20px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            padding: 15px;
+            z-index: 100;
+            width: 300px;
+            animation: fadeIn 0.2s ease;
+        }
+
+        .settings-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .settings-header h3 {
+            font-size: 1rem;
+            font-weight: 600;
+        }
+
+        .settings-close {
+            background: none;
+            border: none;
+            cursor: pointer;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: var(--primary-light);
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+        }
+
+        .settings-footer {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 10px;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        /* Spinner for loading states */
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s infinite linear;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Voice wave animation */
+        .voice-wave {
+            display: flex;
+            align-items: center;
+            height: 20px;
+            margin-left: 10px;
+        }
+
+        .voice-bar {
+            width: 3px;
+            height: 6px;
+            background-color: var(--voice-color);
+            margin: 0 2px;
+            border-radius: 2px;
+            animation: soundWave 0.5s infinite alternate;
+        }
+
+        .voice-bar:nth-child(2) { animation-delay: 0.1s; }
+        .voice-bar:nth-child(3) { animation-delay: 0.2s; }
+        .voice-bar:nth-child(4) { animation-delay: 0.3s; }
+        .voice-bar:nth-child(5) { animation-delay: 0.4s; }
+
+        @keyframes soundWave {
+            from { height: 3px; }
+            to { height: 15px; }
+        }
+
+        /* Empty state */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            padding: 20px;
+            text-align: center;
+            color: var(--light-text);
+        }
+
+        .empty-state-icon {
+            margin-bottom: 20px;
+            width: 80px;
+            height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-color: var(--secondary-color);
+            border-radius: 50%;
+        }
+
+        .empty-state h3 {
+            margin-bottom: 10px;
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+
+        .empty-state p {
+            margin-bottom: 20px;
+            max-width: 400px;
+        }
+
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .app-container {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                width: 100%;
+                height: auto;
+                max-height: 250px;
+            }
+
+            .chat-container {
+                height: calc(100vh - 250px);
+            }
+
+            .settings-panel {
+                width: calc(100% - 40px);
+                left: 20px;
+                right: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <h1>Restaurant Inventory Assistant</h1>
+            </div>
+            <div class="chat-list" id="chatList">
+                <!-- Chat items will be added here dynamically -->
+            </div>
+            <div class="chat-actions">
+                <button id="newChatBtn" class="btn btn-outline">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 5px;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    New Chat
+                </button>
+            </div>
+        </div>
+
+        <div class="chat-container">
+            <div class="chat-header">
+                <h2 id="currentChatTitle">New Conversation</h2>
+                <div class="header-actions">
+                    <button id="refreshBtn" class="icon-button" title="Refresh inventory data">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M21.5 8a10 10 0 0 1-19 3M2.5 16a10 10 0 0 1 19-3"></path></svg>
+                    </button>
+                    <button id="settingsBtn" class="icon-button" title="Settings">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                    </button>
+                </div>
+            </div>
+
+            <div id="chatMessages" class="chat-messages">
+                <div class="empty-state">
+                    <div class="empty-state-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                    </div>
+                    <h3>How can I help with your inventory?</h3>
+                    <p>Ask me questions about your restaurant inventory using voice or text. I'll respond in the same format.</p>
+                    <p>Try asking: "What dairy items are most expensive?" or "Which items should I buy in bulk?"</p>
+                </div>
+            </div>
+
+            <div class="input-area">
+                <div class="input-container">
+                    <textarea id="messageInput" class="input-field" placeholder="Type your message..." rows="1"></textarea>
+                    <div class="input-actions">
+                        <div id="voiceWave" class="voice-wave hidden">
+                            <div class="voice-bar"></div>
+                            <div class="voice-bar"></div>
+                            <div class="voice-bar"></div>
+                            <div class="voice-bar"></div>
+                            <div class="voice-bar"></div>
+                        </div>
+                        <button id="voiceBtn" class="voice-button" title="Use voice input">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" x2="12" y1="19" y2="22"></line></svg>
+                        </button>
+                        <button id="sendBtn" class="send-button" title="Send message">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="status-bar">
+                <div class="status-indicator">
+                    <div id="statusDot" class="status-dot connecting"></div>
+                    <span id="statusText">Connecting...</span>
+                </div>
+                <div id="apiInfo">API: http://localhost:8000</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Panel (Initially Hidden) -->
+    <div id="settingsPanel" class="settings-panel hidden">
+        <div class="settings-header">
+            <h3>Settings</h3>
+            <button id="closeSettingsBtn" class="settings-close">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+        </div>
+        <div class="form-group">
+            <label for="userId">User ID</label>
+            <input type="text" id="userId" class="form-control" value="demo-user-123" placeholder="Enter user ID">
+        </div>
+        <div class="form-group">
+            <label for="apiUrl">API URL</label>
+            <input type="text" id="apiUrl" class="form-control" value="http://localhost:8000" placeholder="Enter API URL">
+        </div>
+        <div class="form-group">
+            <label for="voiceMode">Voice Mode</label>
+            <select id="voiceMode" class="form-control">
+                <option value="adaptive">Adaptive (Voice replies only to voice queries)</option>
+                <option value="always">Always On (Voice replies to all queries)</option>
+                <option value="off">Off (No voice features)</option>
+            </select>
+        </div>
+        <div class="form-group" id="voiceSelectionContainer">
+            <label for="voiceSelect">Assistant Voice</label>
+            <select id="voiceSelect" class="form-control"></select>
+        </div>
+        <div class="settings-footer">
+            <button id="applySettingsBtn" class="btn">Apply</button>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const chatList = document.getElementById('chatList');
+        const chatMessages = document.getElementById('chatMessages');
+        const messageInput = document.getElementById('messageInput');
+        const sendBtn = document.getElementById('sendBtn');
+        const voiceBtn = document.getElementById('voiceBtn');
+        const voiceWave = document.getElementById('voiceWave');
+        const refreshBtn = document.getElementById('refreshBtn');
+        const settingsBtn = document.getElementById('settingsBtn');
+        const settingsPanel = document.getElementById('settingsPanel');
+        const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+        const userIdInput = document.getElementById('userId');
+        const apiUrlInput = document.getElementById('apiUrl');
+        const voiceModeSelect = document.getElementById('voiceMode');
+        const voiceSelect = document.getElementById('voiceSelect');
+        const applySettingsBtn = document.getElementById('applySettingsBtn');
+        const newChatBtn = document.getElementById('newChatBtn');
+        const currentChatTitle = document.getElementById('currentChatTitle');
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        const apiInfo = document.getElementById('apiInfo');
+        const voiceSelectionContainer = document.getElementById('voiceSelectionContainer');
+
+        // State
+        let chats = [];
+        let currentChatIndex = -1;
+        let userId = 'demo-user-123';
+        let apiUrl = 'http://localhost:8000';
+        let initialized = false;
+        let loading = false;
+        let recognition = null;
+        let isListening = false;
+        let speechSynthesis = window.speechSynthesis;
+        let voices = [];
+        let selectedVoice = null;
+        let voiceMode = 'adaptive'; // 'adaptive', 'always', 'off'
+        let lastInputMethod = 'text'; // 'text' or 'voice'
+
+        // Create a new chat
+        function createNewChat() {
+            const chatId = generateUUID();
+            const timestamp = new Date();
+            const chat = {
+                id: chatId,
+                title: `Chat ${chats.length + 1}`,
+                messages: [
+                    {
+                        role: 'assistant',
+                        content: 'Hello! I\'m your restaurant inventory assistant. How can I help you today?',
+                        timestamp: timestamp
+                    }
+                ],
+                created: timestamp
+            };
+            
+            chats.push(chat);
+            currentChatIndex = chats.length - 1;
+            
+            // Add to sidebar
+            updateChatList();
+            
+            // Update the chat view
+            renderCurrentChat();
+            
+            // Set focus to input
+            messageInput.focus();
+            
+            return chat;
+        }
+
+        // Update the chat list in the sidebar
+        function updateChatList() {
+            chatList.innerHTML = '';
+            
+            chats.forEach((chat, index) => {
+                const chatItem = document.createElement('div');
+                chatItem.className = `chat-item ${index === currentChatIndex ? 'active' : ''}`;
+                chatItem.dataset.index = index;
+                
+                chatItem.innerHTML = `
+                    <div class="chat-icon">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                    </div>
+                    <div class="chat-title">${chat.title}</div>
+                `;
+                
+                chatItem.addEventListener('click', () => {
+                    switchChat(index);
+                });
+                
+                chatList.appendChild(chatItem);
+            });
+        }
+
+        // Switch to a specific chat
+        function switchChat(index) {
+            if (index < 0 || index >= chats.length) return;
+            
+            currentChatIndex = index;
+            updateChatList();
+            renderCurrentChat();
+        }
+
+        // Render the current chat
+        function renderCurrentChat() {
+            if (currentChatIndex === -1 || !chats[currentChatIndex]) {
+                chatMessages.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                        </div>
+                        <h3>How can I help with your inventory?</h3>
+                        <p>Ask me questions about your restaurant inventory using voice or text. I'll respond in the same format.</p>
+                        <p>Try asking: "What dairy items are most expensive?" or "Which items should I buy in bulk?"</p>
+                    </div>
+                `;
+                currentChatTitle.textContent = 'New Conversation';
+                return;
+            }
+            
+            const chat = chats[currentChatIndex];
+            currentChatTitle.textContent = chat.title;
+            
+            chatMessages.innerHTML = '';
+            chat.messages.forEach(message => {
+                addMessageToUI(message);
+            });
+            
+            // Scroll to bottom
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // Add a message to the current chat
+        function addMessage(role, content, processingTime = null, inputMethod = lastInputMethod) {
+            if (currentChatIndex === -1) {
+                createNewChat();
+            }
+            
+            const message = {
+                role,
+                content,
+                timestamp: new Date(),
+                processingTime,
+                inputMethod
+            };
+            
+            chats[currentChatIndex].messages.push(message);
+            
+            // Save to local storage
+            saveChatsToLocalStorage();
+            
+            addMessageToUI(message);
+            
+            // Scroll to bottom
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+            
+            // Update the chat title if it's the first user message
+            updateChatTitle();
+            
+            return message;
+        }
+
+        // Save chats to local storage
+        function saveChatsToLocalStorage() {
+            localStorage.setItem('restaurant-inventory-chats', JSON.stringify(chats));
+        }
+
+        // Add a message to the UI
+        function addMessageToUI(message) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${message.role}-message`;
+            
+            let messageContent = message.content;
+            
+            // Create the message bubble
+            const messageBubble = document.createElement('div');
+            messageBubble.className = 'message-bubble';
+            messageBubble.innerHTML = messageContent;
+            
+            messageDiv.appendChild(messageBubble);
+            
+            // Add timestamp
+            const messageTime = document.createElement('div');
+            messageTime.className = 'message-time';
+            messageTime.textContent = formatTime(message.timestamp);
+            messageDiv.appendChild(messageTime);
+            
+            // Add input method indicator for voice messages
+            if (message.inputMethod === 'voice') {
+                const voiceIndicator = document.createElement('div');
+                voiceIndicator.className = 'voice-indicator';
+                voiceIndicator.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path></svg>';
+                messageTime.appendChild(voiceIndicator);
+            }
+            
+            // Add to chat
+            chatMessages.appendChild(messageDiv);
+        }
+
+        // Update chat title when the first user message is added
+        function updateChatTitle() {
+            if (chats[currentChatIndex].messages.length <= 2) return;
+            
+            // Find the first user message
+            const firstUserMessage = chats[currentChatIndex].messages.find(m => m.role === 'user');
+            if (!firstUserMessage) return;
+            
+            // Take the first ~20 characters as the title
+            let title = firstUserMessage.content.substring(0, 20).trim();
+            if (firstUserMessage.content.length > 20) title += '...';
+            
+            chats[currentChatIndex].title = title;
+            currentChatTitle.textContent = title;
+            
+            // Update the sidebar
+            updateChatList();
+            
+            // Save to localStorage
+            saveChatsToLocalStorage();
+        }
+
+        // Format time for message timestamps
+        function formatTime(timestamp) {
+            const date = new Date(timestamp);
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
+        // Generate UUID for chat IDs
+        function generateUUID() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+
+        // Send a message
+        async function sendMessage() {
+            const message = messageInput.value.trim();
+            if (!message || loading) return;
+            
+            // Clear input
+            messageInput.value = '';
+            
+            // Adjust height
+            messageInput.style.height = 'auto';
+            
+            // Add user message
+            addMessage('user', message, null, lastInputMethod);
+            
+            // Set loading state
+            loading = true;
+            
+            try {
+                // Update UI to show loading
+                statusText.textContent = 'Processing...';
+                
+                // Get start time for processing time calculation
+                const startTime = new Date();
+                
+                // Create question object
+                const question = {
+                    text: message,
+                    user_id: userId,
+                    conversation_id: chats[currentChatIndex].id
+                };
+                
+                // Send to API
+                const response = await fetch(`${apiUrl}/query`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(question)
+                });
+                
+                // Calculate processing time
+                const processingTime = (new Date() - startTime) / 1000;
+                
+                // Check response
+                if (!response.ok) {
+                    throw new Error('Failed to get response');
+                }
+                
+                // Parse response
+                const data = await response.json();
+                
+                // Add assistant message
+                const assistantMessage = addMessage('assistant', data.response, processingTime);
+                
+                // Handle voice response if needed
+                if ((voiceMode === 'always' || (voiceMode === 'adaptive' && lastInputMethod === 'voice')) && speechSynthesis) {
+                    speakText(data.response);
+                }
+                
+            } catch (error) {
+                console.error('Error:', error);
+                addMessage('assistant', 'Sorry, I encountered an error processing your request. Please try again.');
+            } finally {
+                // Reset loading state
+                loading = false;
+                statusText.textContent = 'Connected';
+            }
+        }
+
+        // Speak text using speech synthesis
+        function speakText(text) {
+            if (!speechSynthesis) return;
+            
+            // Stop any current speech
+            speechSynthesis.cancel();
+            
+            // Create utterance
+            const utterance = new SpeechSynthesisUtterance(text);
+            
+            // Set voice if selected
+            if (selectedVoice) {
+                utterance.voice = selectedVoice;
+            }
+            
+            // Speak
+            speechSynthesis.speak(utterance);
+        }
+
+        // Set up speech recognition
+        function setupSpeechRecognition() {
+            if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                voiceBtn.style.display = 'none';
+                return;
+            }
+            
+            // Create recognition object
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = true;
+            
+            // Handle results
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                messageInput.value = transcript;
+            };
+            
+            // Handle end
+            recognition.onend = () => {
+                isListening = false;
+                voiceBtn.classList.remove('listening');
+                voiceWave.classList.add('hidden');
+                
+                // Send message if it has content
+                if (messageInput.value.trim()) {
+                    lastInputMethod = 'voice';
+                    sendMessage();
+                }
+            };
+            
+            // Handle error
+            recognition.onerror = (event) => {
+                isListening = false;
+                voiceBtn.classList.remove('listening');
+                voiceWave.classList.add('hidden');
+                console.error('Speech recognition error', event.error);
+            };
+        }
+
+        // Load voices for speech synthesis
+        function loadVoices() {
+            if (!speechSynthesis) return;
+            
+            // Get available voices
+            voices = speechSynthesis.getVoices();
+            
+            if (voices.length === 0) {
+                // Wait for voices to load
+                speechSynthesis.onvoiceschanged = () => {
+                    voices = speechSynthesis.getVoices();
+                    populateVoiceList();
+                };
+            } else {
+                populateVoiceList();
+            }
+        }
+
+        // Populate voice selection dropdown
+        function populateVoiceList() {
+            if (!voices || voices.length === 0) return;
+            
+            voiceSelect.innerHTML = '';
+            
+            voices.forEach((voice, index) => {
+                const option = document.createElement('option');
+                option.value = index;
+                option.textContent = `${voice.name} (${voice.lang})`;
+                voiceSelect.appendChild(option);
+            });
+            
+            // Select default voice (first English voice)
+            const defaultVoice = voices.findIndex(voice => voice.lang.includes('en-'));
+            if (defaultVoice !== -1) {
+                voiceSelect.value = defaultVoice;
+                selectedVoice = voices[defaultVoice];
+            }
+        }
+
+        // Load settings from local storage
+        function loadSettings() {
+            const settings = JSON.parse(localStorage.getItem('restaurant-inventory-settings')) || {};
+            
+            userId = settings.userId || 'test';
+            apiUrl = settings.apiUrl || 'http://localhost:8000';
+            voiceMode = settings.voiceMode || 'adaptive';
+            
+            userIdInput.value = userId;
+            apiUrlInput.value = apiUrl;
+            voiceModeSelect.value = voiceMode;
+            
+            apiInfo.textContent = `API: ${apiUrl}`;
+            
+            // Load selected voice if applicable
+            if (settings.selectedVoiceIndex !== undefined && voices.length > 0) {
+                voiceSelect.value = settings.selectedVoiceIndex;
+                selectedVoice = voices[settings.selectedVoiceIndex];
+            }
+        }
+
+        // Save settings to local storage
+        function saveSettings() {
+            const settings = {
+                userId: userId,
+                apiUrl: apiUrl,
+                voiceMode: voiceMode,
+                selectedVoiceIndex: voices.length > 0 ? parseInt(voiceSelect.value) : undefined
+            };
+            
+            localStorage.setItem('restaurant-inventory-settings', JSON.stringify(settings));
+        }
+
+        // Load chats from local storage
+        function loadChatsFromLocalStorage() {
+            const storedChats = localStorage.getItem('restaurant-inventory-chats');
+            if (storedChats) {
+                chats = JSON.parse(storedChats);
+                
+                // Convert date strings to Date objects
+                chats.forEach(chat => {
+                    chat.created = new Date(chat.created);
+                    chat.messages.forEach(message => {
+                        message.timestamp = new Date(message.timestamp);
+                    });
+                });
+                
+                // Set current chat to the most recent
+                currentChatIndex = chats.length - 1;
+            }
+        }
+
+        // Initialize the app
+        async function initializeApp() {
+            try {
+                // Load settings
+                loadSettings();
+                
+                // Load voices
+                loadVoices();
+                
+                // Setup speech recognition
+                setupSpeechRecognition();
+                
+                // Load chats
+                loadChatsFromLocalStorage();
+                
+                // Update UI
+                updateChatList();
+                renderCurrentChat();
+                
+                // Initialize backend
+                statusDot.className = 'status-dot connecting';
+                statusText.textContent = 'Connecting...';
+                
+                const response = await fetch(`${apiUrl}/initialize/${userId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ user_id: userId, force_rebuild: false })
+                });
+                
+                if (response.ok) {
+                    statusDot.className = 'status-dot connected';
+                    statusText.textContent = 'Connected';
+                    
+                    // If no chats, create new one
+                    if (chats.length === 0) {
+                        createNewChat();
+                    }
+                    
+                    initialized = true;
+                } else {
+                    statusDot.className = 'status-dot disconnected';
+                    statusText.textContent = 'Connection Failed';
+                }
+                
+            } catch (error) {
+                console.error('Initialization error:', error);
+                statusDot.className = 'status-dot disconnected';
+                statusText.textContent = 'Connection Failed';
+            }
+        }
+
+        // Event listeners
+        document.addEventListener('DOMContentLoaded', () => {
+            // Initialize app
+            initializeApp();
+            
+            // Send button click
+            sendBtn.addEventListener('click', () => {
+                lastInputMethod = 'text';
+                sendMessage();
+            });
+            
+            // Input enter key
+            messageInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    lastInputMethod = 'text';
+                    sendMessage();
+                }
+            });
+            
+            // Voice button click
+            voiceBtn.addEventListener('click', () => {
+                if (!recognition) return;
+                
+                if (isListening) {
+                    recognition.stop();
+                    isListening = false;
+                    voiceBtn.classList.remove('listening');
+                    voiceWave.classList.add('hidden');
+                } else {
+                    isListening = true;
+                    voiceBtn.classList.add('listening');
+                    voiceWave.classList.remove('hidden');
+                    recognition.start();
+                }
+            });
+            
+            // New chat button
+            newChatBtn.addEventListener('click', createNewChat);
+            
+            // Settings button
+            settingsBtn.addEventListener('click', () => {
+                settingsPanel.classList.remove('hidden');
+            });
+            
+            // Close settings button
+            closeSettingsBtn.addEventListener('click', () => {
+                settingsPanel.classList.add('hidden');
+            });
+            
+            // Apply settings button
+            applySettingsBtn.addEventListener('click', async () => {
+                const newUserId = userIdInput.value.trim();
+                const newApiUrl = apiUrlInput.value.trim();
+                const newVoiceMode = voiceModeSelect.value;
+                
+                // Check if user ID changed
+                if (newUserId !== userId) {
+                    userId = newUserId;
+                    
+                    // Reset chats if user changed
+                    chats = [];
+                    currentChatIndex = -1;
+                    updateChatList();
+                    renderCurrentChat();
+                    
+                    // Re-initialize
+                    initialized = false;
+                    
+                    try {
+                        statusDot.className = 'status-dot connecting';
+                        statusText.textContent = 'Connecting...';
+                        
+                        const response = await fetch(`${newApiUrl}/initialize/${userId}`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ user_id: userId, force_rebuild: false })
+                        });
+                        
+                        if (response.ok) {
+                            statusDot.className = 'status-dot connected';
+                            statusText.textContent = 'Connected';
+                            initialized = true;
+                            createNewChat();
+                        } else {
+                            statusDot.className = 'status-dot disconnected';
+                            statusText.textContent = 'Connection Failed';
+                        }
+                        
+                    } catch (error) {
+                        console.error('Error:', error);
+                        statusDot.className = 'status-dot disconnected';
+                        statusText.textContent = 'Connection Failed';
+                    }
+                }
+                
+                // Update API URL
+                apiUrl = newApiUrl;
+                apiInfo.textContent = `API: ${apiUrl}`;
+                
+                // Update voice mode
+                voiceMode = newVoiceMode;
+                
+                // Update selected voice
+                if (voices.length > 0) {
+                    selectedVoice = voices[parseInt(voiceSelect.value)];
+                }
+                
+                // Save settings
+                saveSettings();
+                
+                // Close settings panel
+                settingsPanel.classList.add('hidden');
+            });
+            
+            // Refresh button
+            refreshBtn.addEventListener('click', async () => {
+                try {
+                    statusDot.className = 'status-dot connecting';
+                    statusText.textContent = 'Refreshing...';
+                    
+                    const response = await fetch(`${apiUrl}/refresh/${userId}`, {
+                        method: 'POST'
+                    });
+                    
+                    if (response.ok) {
+                        statusDot.className = 'status-dot connected';
+                        statusText.textContent = 'Refreshed';
+                        
+                        // Add system message
+                        if (currentChatIndex !== -1) {
+                            addMessage('system', 'Inventory data refreshed.');
+                        }
+                    } else {
+                        statusDot.className = 'status-dot disconnected';
+                        statusText.textContent = 'Refresh Failed';
+                    }
+                    
+                } catch (error) {
+                    console.error('Error:', error);
+                    statusDot.className = 'status-dot disconnected';
+                    statusText.textContent = 'Refresh Failed';
+                }
+            });
+            
+            // Auto-resize textarea
+            messageInput.addEventListener('input', () => {
+                messageInput.style.height = 'auto';
+                messageInput.style.height = (messageInput.scrollHeight) + 'px';
+            });
+        });
+    </script>
+</body>
+</html>
