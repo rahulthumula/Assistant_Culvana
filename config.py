@@ -14,6 +14,7 @@ COSMOS_CONTAINER = os.getenv("COSMOS_CONTAINER")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = "ft:gpt-4o-2024-08-06:culvana::B4wUeDCH"  # or your preferred model
 OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
+SEARCH_MODEL="gpt-4o-search-preview"
 
 # Azure Cognitive Search configuration
 SEARCH_SERVICE_ENDPOINT = os.getenv("SEARCH_SERVICE_ENDPOINT")

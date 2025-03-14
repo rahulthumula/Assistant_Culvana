@@ -3,7 +3,7 @@ from database import CosmosDB
 from embeddings import EmbeddingGenerator
 from search import VectorStore
 from openai import OpenAI
-from config import OPENAI_API_KEY, OPENAI_MODEL
+from config import OPENAI_API_KEY, OPENAI_MODEL, SEARCH_MODEL
 import uuid
 import logging
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -179,79 +179,135 @@ class RAGAssistant:
             raise
 
     async def query(self, user_question, top_k=5):
-        """Improved query processing with clearer prompt structure and error handling."""
+    
+     try:
+        logger.info(f"Processing query: '{user_question}'")
+        
+        # Determine if this question might benefit from web search
+        needs_web_search = self._should_use_web_search(user_question)
+        logger.info(f"Query needs web search: {needs_web_search}")
+        
+        # Select appropriate model and options
+        selected_model = SEARCH_MODEL if needs_web_search else OPENAI_MODEL
+        logger.info(f"Selected model: {selected_model}")
+        
+        # Generate embedding for the question
+        question_embedding = await self._generate_embedding_with_retry(user_question)
+        
+        # Search for relevant inventory items
+        logger.info(f"Searching for top {top_k} relevant items")
+        search_results = await self.vector_store.search(question_embedding, top_k)
+        
+        if not search_results:
+            logger.warning("No relevant inventory items found")
+            return "I couldn't find any relevant inventory information to answer your question. Please try rephrasing or ask about specific inventory items."
+        
+        # Format the search results for the prompt
+        formatted_results = self._format_search_results(search_results)
+        
+        # Construct a better prompt with clear sections
+        prompt = self._construct_prompt(user_question, formatted_results, needs_web_search)
+        
+        # Base message structure
+        messages = [
+            {
+                "role": "system", 
+                "content": "You are a helpful restaurant inventory assistant that provides accurate information about inventory items, prices, and quantities. Answer questions based only on the inventory data provided. If the data doesn't contain the information needed, acknowledge that limitation. Format your response in a clear, professional manner."
+            },
+            {"role": "user", "content": prompt}
+        ]
+        
+        # Generate response with the selected model, using model-specific parameters
+        logger.info(f"Generating response with model: {selected_model}")
+        
         try:
-            logger.info(f"Processing query: '{user_question}'")
-            
-            # Generate embedding for the question
-            question_embedding = await self._generate_embedding_with_retry(user_question)
-            
-            # Search for relevant inventory items
-            logger.info(f"Searching for top {top_k} relevant items")
-            search_results = await self.vector_store.search(question_embedding, top_k)
-            
-            if not search_results:
-                logger.warning("No relevant inventory items found")
-                return "I couldn't find any relevant inventory information to answer your question. Please try rephrasing or ask about specific inventory items."
-            
-            # Format the search results for the prompt
-            formatted_results = self._format_search_results(search_results)
-            
-            # Construct a better prompt with clear sections
-            prompt = self._construct_prompt(user_question, formatted_results)
-            
-            # Generate response
-            logger.info("Generating response with fine-tuned model")
-            response = self.openai_client.chat.completions.create(
-                model=OPENAI_MODEL,
-                messages=[
-                    {
-                        "role": "system", 
-                        "content": "You are a helpful restaurant inventory assistant that provides accurate information about inventory items, prices, and quantities. Answer questions based only on the inventory data provided. If the data doesn't contain the information needed, acknowledge that limitation. Format your response in a clear, professional manner."
-                    },
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,  # Lower temperature for more consistent responses
-                max_tokens=15000
-            )
-            
+            # First attempt with model-specific parameters
+            if needs_web_search:
+                # For search-enabled models, don't include temperature
+                response = self.openai_client.chat.completions.create(
+                    model=selected_model,
+                    web_search_options={"search_context_size": "medium"},
+                    messages=messages,
+                    max_tokens=15000
+                )
+            else:
+                # For fine-tuned models, include temperature
+                response = self.openai_client.chat.completions.create(
+                    model=selected_model,
+                    messages=messages,
+                    temperature=0.3,
+                    max_tokens=15000
+                )
+                
             logger.info("Response generated successfully")
             return response.choices[0].message.content
             
-        except Exception as e:
-            logger.error(f"Error processing query: {str(e)}")
-            # Provide a graceful error message to the user
-            return f"I encountered an issue while processing your question. Please try again or contact support if the problem persists."
-    
-    def _format_search_results(self, search_results):
-        """Format search results in a clear, structured way for the prompt."""
-        formatted_items = []
-        
-        for i, item in enumerate(search_results):
-            # Extract key information
-            inventory_item_name = item.get('inventory_item_name', 'Unknown')
-            category = item.get('category', 'Unknown')
-            cost = item.get('cost_of_unit', 0)
-            total_units = item.get('total_units', 0)
-            case_price = item.get('case_price', 0)
+        except Exception as api_error:
+            logger.error(f"First attempt error: {str(api_error)}")
             
-            # Format as structured data
-            formatted_item = (
-                f"Item {i+1}: {inventory_item_name}\n"
-                f"  Category: {category}\n"
-                f"  Unit Cost: ${cost}\n"
-                f"  Total Units Available: {total_units}\n"
-                f"  Case Price: ${case_price}\n"
-                f"  Details: {item.get('content', '')}"
-            )
+            # If server error with fine-tuned model, try fallback to base model
+            if not needs_web_search and "500" in str(api_error):
+                logger.info("Falling back to base GPT-4o model due to fine-tuned model error")
+                try:
+                    # Use base GPT-4o model as fallback
+                    fallback_model = "gpt-4o"
+                    response = self.openai_client.chat.completions.create(
+                        model=fallback_model,
+                        messages=messages,
+                        temperature=0.3,
+                        max_tokens=15000
+                    )
+                    
+                    logger.info("Response generated successfully with fallback model")
+                    return response.choices[0].message.content
+                    
+                except Exception as fallback_error:
+                    logger.error(f"Fallback model error: {str(fallback_error)}")
+                    raise
+            else:
+                # If other type of error, or if web search model failed, re-raise
+                raise
             
-            formatted_items.append(formatted_item)
+     except Exception as e:
+        logger.error(f"Error processing query: {str(e)}")
+        # Provide a graceful error message to the user
+        return f"I encountered an issue while processing your question. Please try again or contact support if the problem persists. Error details: {str(e)}"
+    def _should_use_web_search(self, question):
+        """Determine if the question would benefit from web search."""
+        # Define keywords that suggest external information might be needed
+        web_search_keywords = [
+            'market price', 'market trend', 'industry standard', 'compared to market',
+            'current price', 'price trend', 'availability', 'shortage', 'surplus',
+            'industry news', 'restaurant news', 'food trend', 'seasonal availability',
+            'supply chain', 'latest', 'recent', 'today', 'this week', 'this month',
+            'forecast', 'prediction', 'upcoming', 'expected', 'projected',
+            'compare with', 'versus', 'vs'
+        ]
         
-        return "\n\n".join(formatted_items)
-    
-    def _construct_prompt(self, question, formatted_results):
-        """Construct a clear prompt with explicit instructions."""
-        prompt = f"""
+        # Check if any keywords are present in the question
+        question_lower = question.lower()
+        for keyword in web_search_keywords:
+            if keyword in question_lower:
+                return True
+        
+        # Check for questions about external information that our inventory system wouldn't know
+        external_info_patterns = [
+            'what is the average', 'what are typical', 'how does this compare',
+            'what should', 'what would', 'is this a good price', 'is this price fair',
+            'what are other restaurants', 'what do other', 'is there a shortage',
+            'when will', 'why is', 'how long will'
+        ]
+        
+        for pattern in external_info_patterns:
+            if pattern in question_lower:
+                return True
+        
+        # Default to using the fine-tuned model
+        return False
+
+    def _construct_prompt(self, question, formatted_results, using_web_search=False):
+        """Construct a clear prompt with explicit instructions, adapted for web search when needed."""
+        base_prompt = f"""
 I need information from my restaurant inventory to answer this question:
 
 QUESTION:
@@ -259,8 +315,20 @@ QUESTION:
 
 RELEVANT INVENTORY DATA:
 {formatted_results}
+"""
 
+        if using_web_search:
+            base_prompt += """
+Based on the inventory data above AND relevant web information, please provide a detailed answer.
+If the web search provides helpful context about market prices, availability trends, or comparative data,
+include that information clearly marked as external market data.
+"""
+        else:
+            base_prompt += """
 Based ONLY on the inventory data above, please provide a detailed answer to my question.
+"""
+
+        base_prompt += """
 Format your response using HTML tags for better rendering in a chat interface.
 
 For each inventory item, use this exact format:
@@ -286,10 +354,50 @@ Then include a section called "Practical Insights:" with this format:
   </div>
   <!-- Additional insights as needed -->
 </div>
+"""
 
+        if using_web_search:
+            base_prompt += """
+If external market data was used, include this additional section:
+<div style="margin-top: 30px; background-color: #fff7ed; padding: 20px; border-radius: 8px; border: 1px solid #fdba74;">
+  <h3 style="color: #c2410c; margin-top: 0; margin-bottom: 15px; font-size: 20px;">Market Context:</h3>
+  <p style="margin-top: 0; margin-bottom: 10px;">
+    [Include relevant market information obtained from web search here, with proper citations]
+  </p>
+</div>
+"""
+
+        base_prompt += """
 Do not use Markdown formatting like ** or -. Use only HTML as specified above.
 """
-        return prompt
+
+        return base_prompt
+
+    def _format_search_results(self, search_results):
+        """Format search results in a clear, structured way for the prompt."""
+        formatted_items = []
+        
+        for i, item in enumerate(search_results):
+            # Extract key information
+            inventory_item_name = item.get('inventory_item_name', 'Unknown')
+            category = item.get('category', 'Unknown')
+            cost = item.get('cost_of_unit', 0)
+            total_units = item.get('total_units', 0)
+            case_price = item.get('case_price', 0)
+            
+            # Format as structured data
+            formatted_item = (
+                f"Item {i+1}: {inventory_item_name}\n"
+                f"  Category: {category}\n"
+                f"  Unit Cost: ${cost}\n"
+                f"  Total Units Available: {total_units}\n"
+                f"  Case Price: ${case_price}\n"
+                f"  Details: {item.get('content', '')}"
+            )
+            
+            formatted_items.append(formatted_item)
+        
+        return "\n\n".join(formatted_items)
 
     async def index_user_documents(self):
         """Re-index user documents (for refreshing the index)."""
