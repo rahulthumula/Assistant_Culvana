@@ -16,6 +16,9 @@ import uvicorn
 from azure.search.documents.indexes import SearchIndexClient
 from azure.core.credentials import AzureKeyCredential
 from config import SEARCH_SERVICE_ENDPOINT, SEARCH_SERVICE_KEY
+from typing import List, Optional, Dict, Any
+from pydantic import BaseModel
+from event_tracking import ItemEventTracker
 
 # Configure logging
 logging.basicConfig(
@@ -76,6 +79,46 @@ class InitializeResponse(BaseModel):
     message: str
     status: str
     index_name: str
+
+class ItemHistoryRequest(BaseModel):
+    user_id: str
+    item_identifier: str
+
+class RecentChangesRequest(BaseModel):
+    user_id: str
+    limit: int = 10
+    event_types: Optional[List[str]] = None
+
+class SnapshotRequest(BaseModel):
+    user_id: str
+    item_identifier: str
+    changed_by: Optional[str] = None
+
+class PriceHistoryRequest(BaseModel):
+    user_id: str
+    item_identifier: Optional[str] = None
+    days: int = 300
+
+class HistoryResponse(BaseModel):
+    success: bool
+    message: str
+    item_name: Optional[str] = None
+    item_number: Optional[str] = None
+    history: List[Dict[str, Any]]
+    processing_time: float
+
+class ChangesResponse(BaseModel):
+    success: bool
+    message: str
+    events: List[Dict[str, Any]]
+    processing_time: float
+
+class PriceHistoryResponse(BaseModel):
+    success: bool
+    message: str
+    price_history: List[Dict[str, Any]]
+    processing_time: float
+
 
 # Middleware for request timing
 @app.middleware("http")
@@ -569,6 +612,239 @@ async def get_agent_capabilities():
         ]
     }
 
+
+
+
+# New API endpoints
+@app.post("/item/history", response_model=HistoryResponse)
+async def get_item_history(request: ItemHistoryRequest):
+    """Get complete change history for a specific inventory item"""
+    start_time = time.time()
+    user_id = request.user_id
+
+    try:
+        # Ensure agent exists for this user
+        if user_id not in inventory_agents:
+            inventory_agents[user_id] = InventoryAgent(user_id)
+        
+        agent = inventory_agents[user_id]
+        
+        # Get item history
+        result = await agent.get_item_history(request.item_identifier)
+        
+        # Calculate processing time
+        processing_time = time.time() - start_time
+        
+        # Prepare response
+        response = HistoryResponse(
+            success=result.get("success", False),
+            message=result.get("message", ""),
+            item_name=result.get("item_name"),
+            item_number=result.get("item_number"),
+            history=result.get("history", []),
+            processing_time=processing_time
+        )
+        
+        return response
+    
+    except Exception as e:
+        logger.error(f"Error getting item history: {str(e)}")
+        
+        return HistoryResponse(
+            success=False,
+            message=f"Error: {str(e)}",
+            history=[],
+            processing_time=time.time() - start_time
+        )
+
+@app.post("/item/recent-changes", response_model=ChangesResponse)
+async def get_recent_changes(request: RecentChangesRequest):
+    """Get recent changes across all inventory items"""
+    start_time = time.time()
+    user_id = request.user_id
+
+    try:
+        # Ensure agent exists for this user
+        if user_id not in inventory_agents:
+            inventory_agents[user_id] = InventoryAgent(user_id)
+        
+        agent = inventory_agents[user_id]
+        
+        # Get recent changes
+        result = await agent.get_recent_changes(
+            limit=request.limit,
+            event_types=request.event_types
+        )
+        
+        # Calculate processing time
+        processing_time = time.time() - start_time
+        
+        # Prepare response
+        response = ChangesResponse(
+            success=result.get("success", False),
+            message=result.get("message", ""),
+            events=result.get("events", []),
+            processing_time=processing_time
+        )
+        
+        return response
+    
+    except Exception as e:
+        logger.error(f"Error getting recent changes: {str(e)}")
+        
+        return ChangesResponse(
+            success=False,
+            message=f"Error: {str(e)}",
+            events=[],
+            processing_time=time.time() - start_time
+        )
+
+@app.post("/item/snapshot", response_model=AgentResponse)
+async def create_item_snapshot(request: SnapshotRequest):
+    """Create a point-in-time snapshot of an inventory item"""
+    start_time = time.time()
+    user_id = request.user_id
+
+    try:
+        # Ensure agent exists for this user
+        if user_id not in inventory_agents:
+            inventory_agents[user_id] = InventoryAgent(user_id)
+        
+        agent = inventory_agents[user_id]
+        
+        # Create snapshot
+        result = await agent.create_item_snapshot(
+            item_identifier=request.item_identifier,
+            changed_by=request.changed_by
+        )
+        
+        # Calculate processing time
+        processing_time = time.time() - start_time
+        
+        # Prepare response
+        response = AgentResponse(
+            success=result.get("success", False),
+            message=result.get("message", ""),
+            data=None,
+            processing_time=processing_time
+        )
+        
+        return response
+    
+    except Exception as e:
+        logger.error(f"Error creating item snapshot: {str(e)}")
+        
+        return AgentResponse(
+            success=False,
+            message=f"Error: {str(e)}",
+            data=None,
+            processing_time=time.time() - start_time
+        )
+
+@app.post("/item/price-history", response_model=PriceHistoryResponse)
+async def get_price_history(request: PriceHistoryRequest):
+    """Get price change history for all items or a specific item"""
+    start_time = time.time()
+    user_id = request.user_id
+
+    try:
+        # Ensure agent exists for this user
+        if user_id not in inventory_agents:
+            inventory_agents[user_id] = InventoryAgent(user_id)
+        
+        agent = inventory_agents[user_id]
+        
+        # Get price history
+        result = await agent.get_price_change_history(
+            item_identifier=request.item_identifier,
+            days=request.days
+        )
+        
+        # Calculate processing time
+        processing_time = time.time() - start_time
+        
+        # Prepare response
+        response = PriceHistoryResponse(
+            success=result.get("success", False),
+            message=result.get("message", ""),
+            price_history=result.get("price_history", []),
+            processing_time=processing_time
+        )
+        
+        return response
+    
+    except Exception as e:
+        logger.error(f"Error getting price history: {str(e)}")
+        
+        return PriceHistoryResponse(
+            success=False,
+            message=f"Error: {str(e)}",
+            price_history=[],
+            processing_time=time.time() - start_time
+        )
+
+# API documentation endpoint
+@app.get("/event-tracking/capabilities")
+async def get_event_tracking_capabilities():
+    """Return information about the event tracking capabilities"""
+    return {
+        "capabilities": [
+            {
+                "name": "Item History",
+                "description": "Get complete change history for a specific inventory item",
+                "endpoint": "/item/history",
+                "method": "POST"
+            },
+            {
+                "name": "Recent Changes",
+                "description": "Get recent changes across all inventory items",
+                "endpoint": "/item/recent-changes",
+                "method": "POST"
+            },
+            {
+                "name": "Item Snapshot",
+                "description": "Create a point-in-time snapshot of an inventory item",
+                "endpoint": "/item/snapshot",
+                "method": "POST"
+            },
+            {
+                "name": "Price History",
+                "description": "Get price change history for all items or a specific item",
+                "endpoint": "/item/price-history",
+                "method": "POST"
+            }
+        ],
+        "event_types": [
+            {
+                "type": "ITEM_CREATED",
+                "description": "First-time creation of item"
+            },
+            {
+                "type": "ITEM_UPDATED",
+                "description": "General update to any field"
+            },
+            {
+                "type": "PRICE_UPDATED",
+                "description": "Only price change"
+            },
+            {
+                "type": "QUANTITY_UPDATED",
+                "description": "Only quantity change"
+            },
+            {
+                "type": "UNIT_UPDATED",
+                "description": "Measurement/unit updated"
+            },
+            {
+                "type": "ITEM_SNAPSHOT",
+                "description": "Periodic full-state capture"
+            },
+            {
+                "type": "ITEM_DELETED",
+                "description": "Item removed from inventory"
+            }
+        ]
+    }
 if __name__ == "__main__":
     # Get port from environment or use default
     port = int(os.environ.get("PORT", 8000))

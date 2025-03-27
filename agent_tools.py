@@ -9,6 +9,7 @@ from config import (
     COSMOS_CONTAINER
 )
 from database import CosmosDB
+from event_tracking import ItemEventTracker  # Import event tracker
 
 # Configure logging
 logging.basicConfig(
@@ -24,6 +25,7 @@ class InventoryAgent:
     def __init__(self, user_id):
         self.user_id = user_id
         self.cosmos_db = CosmosDB()
+        self.event_tracker = ItemEventTracker()  # Initialize event tracker
         logger.info(f"Initialized InventoryAgent for user {user_id}")
     
     async def _find_item_by_name_or_number(self, identifier):
@@ -148,27 +150,50 @@ class InventoryAgent:
             # Update the price in the item
             item_name = found_item.get('Inventory Item Name')
             item_number = found_item.get('Item Number')
+            supplier_name = found_item.get('Supplier Name', '')
             
             logger.info(f"Found item: {item_name} (#{item_number})")
+            
+            changes = {}  # Track changes for event logging
             
             if price_type in found_item:
                 old_price = found_item[price_type]
                 found_item[price_type] = float(new_price)
                 logger.info(f"Updated {price_type} from {old_price} to {new_price} for item {item_name} (#{item_number})")
                 
+                # Record the change
+                changes[price_type] = {
+                    "old": old_price,
+                    "new": float(new_price)
+                }
+                
                 # If updating unit cost, recalculate case price if possible
                 if price_type == "Cost of a Unit" and "Quantity In a Case" in found_item:
                     qty_in_case = float(found_item["Quantity In a Case"])
                     if qty_in_case > 0:
+                        old_case_price = found_item.get("Case Price", old_price * qty_in_case)
                         found_item["Case Price"] = float(new_price) * qty_in_case
                         logger.info(f"Recalculated Case Price to {found_item['Case Price']}")
+                        
+                        # Record the change
+                        changes["Case Price"] = {
+                            "old": old_case_price,
+                            "new": found_item["Case Price"]
+                        }
                 
                 # If updating case price, recalculate unit cost if possible
                 elif price_type == "Case Price" and "Quantity In a Case" in found_item:
                     qty_in_case = float(found_item["Quantity In a Case"])
                     if qty_in_case > 0:
+                        old_unit_cost = found_item.get("Cost of a Unit", old_price / qty_in_case)
                         found_item["Cost of a Unit"] = float(new_price) / qty_in_case
                         logger.info(f"Recalculated Cost of a Unit to {found_item['Cost of a Unit']}")
+                        
+                        # Record the change
+                        changes["Cost of a Unit"] = {
+                            "old": old_unit_cost,
+                            "new": found_item["Cost of a Unit"]
+                        }
             else:
                 logger.warning(f"Price field '{price_type}' not found in item {item_name}")
                 return {
@@ -184,6 +209,15 @@ class InventoryAgent:
                     body=item_doc
                 )
                 logger.info("Successfully updated document in CosmosDB")
+                
+                # Log the price change event
+                self.event_tracker.track_item_updated(
+                    user_id=self.user_id,
+                    item_number=item_number,
+                    changes=changes,
+                    supplier_name=supplier_name
+                )
+                
             except Exception as db_error:
                 logger.error(f"Error updating document in CosmosDB: {str(db_error)}")
                 import traceback
@@ -253,13 +287,22 @@ class InventoryAgent:
             # Update the quantity in the item
             item_name = found_item.get('Inventory Item Name')
             item_number = found_item.get('Item Number')
+            supplier_name = found_item.get('Supplier Name', '')
             
             logger.info(f"Found item: {item_name} (#{item_number})")
+            
+            changes = {}  # Track changes for event logging
             
             if "Total Units" in found_item:
                 old_qty = found_item["Total Units"]
                 found_item["Total Units"] = float(new_quantity)
                 logger.info(f"Updated Total Units from {old_qty} to {new_quantity} for item {item_name} (#{item_number})")
+                
+                # Record the change
+                changes["Total Units"] = {
+                    "old": old_qty,
+                    "new": float(new_quantity)
+                }
             else:
                 logger.warning(f"Total Units field not found in item {item_name}")
                 return {
@@ -275,6 +318,15 @@ class InventoryAgent:
                     body=item_doc
                 )
                 logger.info("Successfully updated document in CosmosDB")
+                
+                # Log the quantity change event
+                self.event_tracker.track_item_updated(
+                    user_id=self.user_id,
+                    item_number=item_number,
+                    changes=changes,
+                    supplier_name=supplier_name
+                )
+                
             except Exception as db_error:
                 logger.error(f"Error updating document in CosmosDB: {str(db_error)}")
                 import traceback
@@ -368,6 +420,13 @@ class InventoryAgent:
                     body=inventory_doc
                 )
                 logger.info("Successfully updated document in CosmosDB")
+                
+                # Log the item creation event
+                self.event_tracker.track_item_created(
+                    user_id=self.user_id,
+                    item_data=item_data
+                )
+                
             except Exception as db_error:
                 logger.error(f"Error updating document in CosmosDB: {str(db_error)}")
                 import traceback
@@ -444,6 +503,9 @@ class InventoryAgent:
                     "message": f"Could not locate item '{item_name}' in the document"
                 }
             
+            # Create a copy of the item before removing it
+            item_data = found_item.copy()
+            
             # Remove the item
             deleted_item = item_doc['items'].pop(item_index)
             logger.info(f"Removed item from array at index {item_index}")
@@ -456,6 +518,14 @@ class InventoryAgent:
                     body=item_doc
                 )
                 logger.info("Successfully updated document in CosmosDB")
+                
+                # Log the item deletion event
+                self.event_tracker.track_item_deleted(
+                    user_id=self.user_id,
+                    item_number=item_number,
+                    item_data=item_data
+                )
+                
             except Exception as db_error:
                 logger.error(f"Error updating document in CosmosDB: {str(db_error)}")
                 import traceback
@@ -595,4 +665,232 @@ class InventoryAgent:
                 "success": False,
                 "message": f"Error retrieving item details: {str(e)}",
                 "item": None
+            }
+    
+    async def get_item_history(self, item_identifier):
+        """
+        Get the complete change history for an item
+        
+        Args:
+            item_identifier (str): The item name or number of the inventory item
+            
+        Returns:
+            dict: Result of the operation with item history
+        """
+        try:
+            logger.info(f"Getting history for item: {item_identifier}")
+            
+            # Validate inputs
+            if not item_identifier:
+                logger.error("Empty item identifier provided")
+                return {
+                    "success": False,
+                    "message": "Item identifier cannot be empty",
+                    "history": []
+                }
+            
+            # Find the item by name or number to get the item number
+            found_item, item_doc, is_by_name = await self._find_item_by_name_or_number(item_identifier)
+            
+            if not found_item or not item_doc:
+                identifier_type = "name" if is_by_name else "number"
+                logger.warning(f"No item found with {identifier_type} '{item_identifier}' for user {self.user_id}")
+                return {
+                    "success": False,
+                    "message": f"Item with {identifier_type} '{item_identifier}' not found in inventory",
+                    "history": []
+                }
+            
+            # Get the item number
+            item_name = found_item.get('Inventory Item Name')
+            item_number = found_item.get('Item Number')
+            
+            logger.info(f"Found item: {item_name} (#{item_number})")
+            
+            # Get the item history from event tracker
+            history = self.event_tracker.get_item_history(item_number)
+            
+            return {
+                "success": True,
+                "message": f"Retrieved {len(history)} historical events for item '{item_name}' (#{item_number})",
+                "item_name": item_name,
+                "item_number": item_number,
+                "history": history
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting item history: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return {
+                "success": False,
+                "message": f"Error retrieving item history: {str(e)}",
+                "history": []
+            }
+    
+    async def get_recent_changes(self, limit=10, event_types=None):
+        """
+        Get recent changes across all inventory items
+        
+        Args:
+            limit (int): Maximum number of events to return
+            event_types (list): Optional filter by event types
+            
+        Returns:
+            dict: Result of the operation with recent changes
+        """
+        try:
+            logger.info(f"Getting recent changes for user {self.user_id}")
+            
+            # Get recent events from event tracker
+            events = await self.event_tracker.get_recent_events(
+                user_id=self.user_id,
+                limit=limit,
+                event_types=event_types
+            )
+            
+            return {
+                "success": True,
+                "message": f"Retrieved {len(events)} recent events",
+                "events": events
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting recent changes: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return {
+                "success": False,
+                "message": f"Error retrieving recent changes: {str(e)}",
+                "events": []
+            }
+    
+    async def create_item_snapshot(self, item_identifier, changed_by=None):
+        """
+        Create a point-in-time snapshot of an item
+        
+        Args:
+            item_identifier (str): The item name or number of the inventory item
+            changed_by (str): Optional - who performed the action
+            
+        Returns:
+            dict: Result of the operation
+        """
+        try:
+            logger.info(f"Creating snapshot for item: {item_identifier}")
+            
+            # Validate inputs
+            if not item_identifier:
+                logger.error("Empty item identifier provided")
+                return {
+                    "success": False,
+                    "message": "Item identifier cannot be empty"
+                }
+            
+            # Find the item by name or number
+            found_item, item_doc, is_by_name = await self._find_item_by_name_or_number(item_identifier)
+            
+            if not found_item or not item_doc:
+                identifier_type = "name" if is_by_name else "number"
+                logger.warning(f"No item found with {identifier_type} '{item_identifier}' for user {self.user_id}")
+                return {
+                    "success": False,
+                    "message": f"Item with {identifier_type} '{item_identifier}' not found in inventory"
+                }
+            
+            # Get item details
+            item_name = found_item.get('Inventory Item Name')
+            item_number = found_item.get('Item Number')
+            
+            logger.info(f"Found item: {item_name} (#{item_number})")
+            
+            # Create snapshot
+            result = self.event_tracker.create_snapshot(
+                user_id=self.user_id,
+                item_number=item_number,
+                item_data=found_item,
+                changed_by=changed_by
+            )
+            
+            if result:
+                return {
+                    "success": True,
+                    "message": f"Successfully created snapshot for item '{item_name}' (#{item_number})"
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": f"Failed to create snapshot for item '{item_name}' (#{item_number})"
+                }
+            
+        except Exception as e:
+            logger.error(f"Error creating item snapshot: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return {
+                "success": False,
+                "message": f"Error creating snapshot: {str(e)}"
+            }
+    
+    async def get_price_change_history(self, item_identifier=None, days=30):
+        """
+        Get price change history for all items or a specific item
+        
+        Args:
+            item_identifier (str): Optional item name or number to filter by
+            days (int): Number of days to look back
+            
+        Returns:
+            dict: Result of the operation with price history
+        """
+        try:
+            logger.info(f"Getting price history for user {self.user_id}")
+            
+            item_number = None
+            item_name = None
+            
+            # If item_identifier provided, find the item to get its number
+            if item_identifier:
+                found_item, item_doc, is_by_name = await self._find_item_by_name_or_number(item_identifier)
+                
+                if not found_item or not item_doc:
+                    identifier_type = "name" if is_by_name else "number"
+                    logger.warning(f"No item found with {identifier_type} '{item_identifier}' for user {self.user_id}")
+                    return {
+                        "success": False,
+                        "message": f"Item with {identifier_type} '{item_identifier}' not found in inventory",
+                        "price_history": []
+                    }
+                
+                item_name = found_item.get('Inventory Item Name')
+                item_number = found_item.get('Item Number')
+                
+                logger.info(f"Found item: {item_name} (#{item_number})")
+            
+            # Get price history from event tracker
+            history = await self.event_tracker.get_price_change_history(
+                user_id=self.user_id,
+                item_number=item_number,
+                days=days
+            )
+            
+            message = f"Retrieved {len(history)} price change events"
+            if item_name:
+                message += f" for item '{item_name}' (#{item_number})"
+            message += f" in the last {days} days"
+            
+            return {
+                "success": True,
+                "message": message,
+                "price_history": history
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting price change history: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return {
+                "success": False,
+                "message": f"Error retrieving price history: {str(e)}",
+                "price_history": []
             }
